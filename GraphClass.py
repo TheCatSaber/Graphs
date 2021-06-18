@@ -1,9 +1,9 @@
-from typing import Iterator
+from typing import Any, Iterator, Optional
 import random
 
 
 Node = int | str
-Colour = int
+Colour = Optional[int]
 
 class Graph:
     _nodes: list[Node]
@@ -33,6 +33,10 @@ class Graph:
         """Allows G[node] to return neighbours of node"""
         return self._adj[node]
 
+    def __len__(self) -> int:
+        """How many nodes in graph: for len(G)."""
+        return len(self._nodes)
+
     def random_init(self, random_size: int, random_method:str="Erdos-Renyi", \
             node_type:str="int",
             alex_mylet_edge_number:int=0, \
@@ -59,6 +63,7 @@ class Graph:
             raise ValueError(f"Node {node} already exists")
         self._nodes.append(node)
         self._adj[node] = []
+        self._colours[node] = None
 
     def add_nodes_from_list(self, node_list: list[Node]) -> None:
         for node in node_list:
@@ -70,8 +75,10 @@ class Graph:
             self.add_node(node_one)
         if not node_two in self:
             self.add_node(node_two)
-        self._adj[node_one].append(node_two)
-        self._adj[node_two].append(node_one)
+        if node_two not in self._adj[node_one]:
+            self._adj[node_one].append(node_two)
+        if node_one not in self._adj[node_two]:
+            self._adj[node_two].append(node_one)
 
     def add_edges_from_list(self, edge_list: list[tuple[Node, Node]]) -> None:
         for node_pair in edge_list:
@@ -111,3 +118,42 @@ class Graph:
                 if self._compare_nodes(node_one, node_two):
                     if p >= random.random():
                         self.add_edge(node_one, node_two)
+
+    def valid_colouring(self) -> bool:
+        """Checks if self._colours is a valid colouring
+        of the graph made by self._nodes and self._adj."""
+        for node in self._nodes:
+            for edge_node in self._adj[node]:
+                if self._colours[node] == self._colours[edge_node]:
+                    return False
+        return True
+
+    def greedy_colouring(self, order: list[Node]) -> None:
+        if order == None:
+            raise TypeError("Order for greedy_colouring cannot be None")
+        if len(order) != len(self):
+            raise ValueError("Order for greedy_colouring must have the same number of nodes \
+                              as the graph")
+        for node in order:
+            # neighbour_colours may include None, but not an issue as start counting from 0 below
+            neighbour_colours = set((self._colours[neighbour] for neighbour in self[node]))
+            colour = 0
+            while True:
+                if colour not in neighbour_colours:
+                    self._colours[node] = colour
+                colour += 1
+
+    def random_ordering(self) -> list[Node]:
+        nodes = self._nodes[:]
+        random.shuffle(nodes)
+        return nodes
+
+    def _order_dict_return_list(self, dictionary: dict[Any, Any], reverse:bool=False) -> list[Any]:
+        return [key for key, _ in sorted(dictionary.items(),
+            key=lambda item: item[1], reverse=reverse)]
+
+    def degree_ordering(self) -> list[Node]:
+        vertex_degree_dict = {node: len(self._adj[node]) for node in self}
+        ordered_vertex_degress = self._order_dict_return_list(
+            vertex_degree_dict, reverse=True)
+        return ordered_vertex_degress
