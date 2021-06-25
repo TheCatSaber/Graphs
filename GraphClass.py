@@ -1,14 +1,20 @@
 from typing import Any, Iterator, Optional
 import random
+import itertools
 
 
 Node = int | str
 Colour = Optional[int]
 
+
 class Graph:
     _nodes: list[Node]
     _adj: dict[Node, list[Node]]
     _colours: dict[Node, Colour]
+    _saturation_degree_dict: dict[Node, int]
+    _ordered_saturation_degrees: list[Node]
+
+
     def __init__(self) -> None:
         """A class to store and access properties of graphs.
         
@@ -37,9 +43,9 @@ class Graph:
         """How many nodes in graph: for len(G)."""
         return len(self._nodes)
 
-    def random_init(self, random_size: int, random_method:str="Erdos-Renyi", \
+    def random_init(self, random_size: int, random_method:str="Erdos-Renyi",
             node_type:str="int",
-            alex_mylet_edge_number:int=0, \
+            alex_mylet_edge_number:int=0,
             erdos_renyi_p:float=0) -> None:
         """Generate a random graph of size random_size using random_method.
         
@@ -84,11 +90,22 @@ class Graph:
         for node_pair in edge_list:
             self.add_edge(node_pair[0], node_pair[1])
 
+    def _string_node_names(self, number: int) -> list[str]:
+        n = 1
+        counter = 0
+        while True:
+            for i in itertools.product((chr(i) for i in range(65, 65+26)), repeat=n):
+                yield ''.join(i)
+                counter += 1
+                if counter == number:
+                    return
+            n += 1
+
     def _nodes_init(self, size: int, node_type: str) -> None:
         match node_type:
             case "str":
-                # TODO: Method to get A, B, C, ... AA, AB, AC etc.
-                self.add_nodes_from_list([chr(i) for i in range(65, 65+size)])
+                # Method to get 'A', 'B', 'C', ... 'AA', 'AB', 'AC' ...
+                self.add_nodes_from_list([i for i in self._string_node_names(size)])
             case "int" | _:
                 self.add_nodes_from_list([i for i in range(1, size+1)])
 
@@ -128,6 +145,20 @@ class Graph:
                     return False
         return True
 
+    def _neighbour_colours(self, node: Node) -> set[Colour]:
+        return set((self._colours[neighbour] for neighbour in self[node]))
+    
+    def _colour_node(self, node: Node) -> Colour:
+        # neighbour_colours may include None,
+        # but this is not an issue as the while loop checks numbers
+        # starting from 0 (`None`s are ignored).
+        neighbour_colours = self._neighbour_colours(node)
+        colour = 0
+        while True:
+            if colour not in neighbour_colours:
+                return colour
+            colour += 1
+
     def greedy_colouring(self, order: list[Node]) -> None:
         if order == None:
             raise TypeError("Order for greedy_colouring cannot be None")
@@ -135,13 +166,7 @@ class Graph:
             raise ValueError("Order for greedy_colouring must have the same number of nodes \
                               as the graph")
         for node in order:
-            # neighbour_colours may include None, but not an issue as start counting from 0 below
-            neighbour_colours = set((self._colours[neighbour] for neighbour in self[node]))
-            colour = 0
-            while True:
-                if colour not in neighbour_colours:
-                    self._colours[node] = colour
-                colour += 1
+            self._colours[node] = self._colour_node(node)
 
     def random_ordering(self) -> list[Node]:
         nodes = self._nodes[:]
@@ -157,3 +182,26 @@ class Graph:
         ordered_vertex_degress = self._order_dict_return_list(
             vertex_degree_dict, reverse=True)
         return ordered_vertex_degress
+
+    def _make_saturation_degree_dict(self) -> None:
+        self._saturation_degree_dict = {node: len(self._neighbour_colours(node))
+            for node in self.degree_ordering() if self._colours[node] == None}
+
+    def _order_saturation_degree_dict(self) -> None:
+        self._ordered_saturation_degrees = self._order_dict_return_list(
+            self._saturation_degree_dict, True)
+
+    def dsatur_colouring(self) -> None:
+        self._make_saturation_degree_dict()
+        for _ in range(len(self)):
+            self._order_saturation_degree_dict()
+            node_to_colour = self._ordered_saturation_degrees[0]
+            self._colours[node_to_colour] = self._colour_node(node_to_colour)
+            # Update saturation_degree_dict: remove coloured node
+            self._saturation_degree_dict.pop(node_to_colour)
+            # Update neighbours, if not already got a colour,
+            # i.e. colour is None
+            for neighbour in self[node_to_colour]:
+                if self._colours[neighbour] == None:
+                    self._saturation_degree_dict[neighbour] = len(self._neighbour_colours(neighbour))
+            # Order at start of next iteration
