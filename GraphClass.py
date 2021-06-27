@@ -205,3 +205,16 @@ class Graph:
                 if self._colours[neighbour] == None:
                     self._saturation_degree_dict[neighbour] = len(self._neighbour_colours(neighbour))
             # Order at start of next iteration
+
+    def product_brute_force_colouring(self) -> None:
+        # Start with 1 colour (0)
+        no_colours = 1
+
+        while True:
+            colourings = itertools.product([i for i in range(no_colours)], repeat=len(self))
+            for colouring in colourings:
+                for colour, node in zip(colouring, self):
+                    self._colours[node] = colour
+                    if self.valid_colouring():
+                        return
+            no_colours += 1
