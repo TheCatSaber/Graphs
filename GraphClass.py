@@ -1,11 +1,17 @@
-from typing import Any, Iterator, Optional
+from __future__ import annotations
+from typing import Any, Callable, Iterator, Optional, Tuple
 import random
 import itertools
 
 
 Node = int | str
 Colour = Optional[int]
+NodeGroup = list[Node]
+NodeGroups = list[NodeGroup]
+Order = list[Node]
 
+Input1 = Any
+Input2 = Any
 
 class Graph:
     _nodes: list[Node]
@@ -43,10 +49,10 @@ class Graph:
         """How many nodes in graph: for len(G)."""
         return len(self._nodes)
 
-    def random_init(self, random_size: int, random_method:str="Erdos-Renyi",
-            node_type:str="int",
-            alex_mylet_edge_number:int=0,
-            erdos_renyi_p:float=0) -> None:
+    def random_init(self, random_size: int, random_method: str="Erdos-Renyi",
+            node_type: str="int",
+            alex_mylet_edge_number: int=0,
+            erdos_renyi_p: float=0) -> None:
         """Generate a random graph of size random_size using random_method.
         
         random_size: int: size of graph.
@@ -159,25 +165,25 @@ class Graph:
                 return colour
             colour += 1
 
-    def greedy_colouring(self, order: list[Node]) -> None:
+    def greedy_colouring(self, order: Order) -> None:
         if order == None:
             raise TypeError("Order for greedy_colouring cannot be None")
         if len(order) != len(self):
-            raise ValueError("Order for greedy_colouring must have the same number of nodes \
-                              as the graph")
+            raise ValueError("Order for greedy_colouring must have the same number of nodes " 
+                             "as the graph")
         for node in order:
             self._colours[node] = self._colour_node(node)
 
-    def random_ordering(self) -> list[Node]:
+    def random_ordering(self) -> Order:
         nodes = self._nodes[:]
         random.shuffle(nodes)
         return nodes
 
-    def _order_dict_return_list(self, dictionary: dict[Any, Any], reverse:bool=False) -> list[Any]:
+    def _order_dict_return_list(self, dictionary: dict[Input1, Input2], reverse: bool=False) -> list[Input1]:
         return [key for key, _ in sorted(dictionary.items(),
             key=lambda item: item[1], reverse=reverse)]
 
-    def degree_ordering(self) -> list[Node]:
+    def degree_ordering(self) -> Order:
         vertex_degree_dict = {node: len(self._adj[node]) for node in self}
         ordered_vertex_degress = self._order_dict_return_list(
             vertex_degree_dict, reverse=True)
@@ -205,6 +211,99 @@ class Graph:
                 if self._colours[neighbour] == None:
                     self._saturation_degree_dict[neighbour] = len(self._neighbour_colours(neighbour))
             # Order at start of next iteration
+
+    def _create_groups(self) -> NodeGroups:
+        # groups_dict = {colour: [] for colour in self._colours.values()}
+        return [[node for node in self if self._colours[node] == colour] for colour in set(self._colours.values())]
+
+    def _one_d_list(self, two_d_list: list[list[Input1]]) -> list[Input1]:
+        return [item for one_d_list in two_d_list for item in one_d_list]
+
+    def _total_degree(self, G: Graph, groups: NodeGroups) -> dict[NodeGroup, int]:
+        degrees = {node: len(G[node]) for node in G}
+        # total_degree_dict: dict[list[Node], int] = {}
+        # for group in groups:
+        #     total_degree_dict[group] = sum((degrees[node] for node in group))
+        return {group: sum((degrees[node] for node in group)) for group in groups}
+        
+    # The next 6 functions are the basic iterated_greedy functions defined in the original paper
+    # ig_go = iterated greedy group ordering
+    def ig_go_reverse(self, G: Graph, groups: NodeGroups) -> Order:
+        order = self._one_d_list(groups)
+        order.reverse()
+        return order
+    
+    def ig_go_random(self, G: Graph, groups: NodeGroups) -> Order:
+        random.shuffle(groups)
+        order = self._one_d_list(groups)
+        return order
+
+    def ig_go_largest_first(self, G: Graph, groups: NodeGroups) -> Order:
+        sorted_groups = sorted(groups, key=len)
+        order = self._one_d_list(sorted_groups)
+        return order
+
+    def ig_go_smallest_first(self, G: Graph, groups: NodeGroups) -> Order:
+        sorted_groups = sorted(groups, key=len, reverse=True)
+        order = self._one_d_list(sorted_groups)
+        return order
+
+    def ig_go_increasing_total_degree(self, G: Graph, groups: NodeGroups) -> Order:
+        total_degree_dict = self._total_degree(G, groups)
+        degree_ordered_colours = self._order_dict_return_list(total_degree_dict)
+        degree_ordered_groups = [group for group in degree_ordered_colours]
+        order = self._one_d_list(degree_ordered_groups)
+        return order
+    
+    def ig_go_decreasing_total_degree(self, G: Graph, groups: NodeGroups) -> Order:
+        total_degree_dict = self._total_degree(G, groups)
+        degree_ordered_colours = self._order_dict_return_list(total_degree_dict, reverse=True)
+        degree_ordered_groups = [group for group in degree_ordered_colours]
+        order = self._one_d_list(degree_ordered_groups)
+        return order
+
+    def _get_ordering_func(self, ratios: list[Tuple[Callable[[Graph, NodeGroups], Order], int]]) -> Callable[[Graph, NodeGroups], Order]:
+        weightings = [func_tuple[1] for func_tuple in ratios]
+        rand_int = random.randrange(sum(weightings))
+        for i, func_tuple in enumerate(ratios, 1):
+            if rand_int < sum(weightings[:i]):
+                return func_tuple[0]
+        raise RuntimeError("Graph._get_ordering did not get a valid ordering")
+
+    def iterated_greedy(self, limit: int, goal_k: int,
+            ratios: list[Tuple[Callable[[Graph, NodeGroups], Order], int]]) -> None:
+        '''Uses self._colours as a starting point.
+        So you should have already run a colouring algorithm.
+        If not, call self.greedy_colouring(self.degree_ordering()).
+        
+        Ratios is a list of 2-tuples. 1st item is a function that takes a Graph and groups
+        (list[list[Node]] - returned by self._create_groups) as args and returns an order
+        (list[Node] - used for self.greedy_colouring). 2nd item is an int that is the weighting.'''
+        if None in self._colours.values():
+            self.greedy_colouring(self.degree_ordering())
+
+        since_k_decreased = 0
+        k = len(set(i for i in self._colours.values() if i != None))
+        while True:
+            if k <= goal_k:
+                break
+            old_k = k
+            
+            groups = self._create_groups()
+            ordering_func = self._get_ordering_func(ratios)
+            ordering = ordering_func(self, groups)
+            # Clear colours
+            self._colours = {node: None for node in self._colours}
+            self.greedy_colouring(ordering)
+            k = len(set(i for i in self._colours.values() if i != None))
+            
+            if old_k == k:
+                since_k_decreased += 1
+                if since_k_decreased == limit:
+                    break
+            else:
+                # Means k has now decreased
+                since_k_decreased = 0
 
     def product_brute_force_colouring(self) -> None:
         # Start with 1 colour (0)
